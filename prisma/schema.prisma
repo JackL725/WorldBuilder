@@ -1,0 +1,325 @@
+// This is your Prisma schema file.
+// Docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Auth Models (NextAuth v5 / @auth/prisma-adapter) ─────────────────────
+
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  email         String?   @unique
+  emailVerified DateTime?
+  image         String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  accounts Account[]
+  sessions Session[]
+  worlds   World[]
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+// ─── World ──────────────────────────────────────────────────────────────────
+
+model World {
+  id          String   @id @default(cuid())
+  userId      String
+  name        String
+  description String?
+  genre       String   @default("fantasy") // fantasy | sci-fi | horror | historical | custom
+  imageUrl    String?
+  tags        String   @default("[]") // JSON array
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user          User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  locations     Location[]
+  characters    Character[]
+  factions      Faction[]
+  historyEvents HistoryEvent[]
+  loreEntries   LoreEntry[]
+  creatures     Creature[]
+  items         Item[]
+  quests        Quest[]
+  sessions      GameSession[]
+  entityLinks   EntityLink[]
+  inboxItems    InboxItem[]
+
+  @@index([userId])
+}
+
+// ─── Location ──────────────────────────────────────────────────────────────
+// Hierarchical: Region → City → District → POI
+
+model Location {
+  id             String   @id @default(cuid())
+  worldId        String
+  name           String
+  locationType   String   @default("region") // region | city | district | poi | dungeon | landmark | plane
+  publicContent  String?  // Tiptap HTML, visible to players
+  privateContent String?  // DM-only notes
+  imageUrls      String   @default("[]") // JSON array of URLs
+  tags           String   @default("[]") // JSON array of strings
+  parentId       String?  // self-referential for hierarchy
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  world    World      @relation(fields: [worldId], references: [id], onDelete: Cascade)
+  parent   Location?  @relation("LocationHierarchy", fields: [parentId], references: [id])
+  children Location[] @relation("LocationHierarchy")
+
+  @@index([worldId])
+  @@index([parentId])
+}
+
+// ─── Character ────────────────────────────────────────────────────────────────
+
+model Character {
+  id             String   @id @default(cuid())
+  worldId        String
+  name           String
+  role           String   @default("npc")    // pc | npc | villain | deity | historical
+  publicContent  String?  // appearance, public backstory
+  privateContent String?  // secrets, DM notes
+  imageUrls      String   @default("[]")
+  tags           String   @default("[]")
+  // Optional D&D fields
+  race           String?
+  charClass      String?
+  level          Int?
+  stats          String?  // JSON: { str, dex, con, int, wis, cha, hp, ac }
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  world World @relation(fields: [worldId], references: [id], onDelete: Cascade)
+
+  @@index([worldId])
+}
+
+// ─── Faction ──────────────────────────────────────────────────────────────────
+
+model Faction {
+  id             String   @id @default(cuid())
+  worldId        String
+  name           String
+  factionType    String   @default("guild") // guild | kingdom | empire | cult | noble-house | order | organization | religion
+  publicContent  String?  // known goals, public reputation
+  privateContent String?  // true motives, secrets
+  imageUrls      String   @default("[]")
+  tags           String   @default("[]")
+  reputation     Int      @default(0) // -100 (hostile) to 100 (allied)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  world World @relation(fields: [worldId], references: [id], onDelete: Cascade)
+
+  @@index([worldId])
+}
+
+// ─── History Event ──────────────────────────────────────────────────────────
+
+model HistoryEvent {
+  id             String   @id @default(cuid())
+  worldId        String
+  name           String
+  era            String?  // e.g. "Age of Flame", "Before the Sundering"
+  year           String?  // flexible: "Year 432 AE", "~500 years ago"
+  publicContent  String?
+  privateContent String?
+  imageUrls      String   @default("[]")
+  tags           String   @default("[]")
+  sortOrder      Int      @default(0) // for timeline ordering
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  world World @relation(fields: [worldId], references: [id], onDelete: Cascade)
+
+  @@index([worldId])
+  @@index([sortOrder])
+}
+
+// ─── Lore Entry ─────────────────────────────────────────────────────────────────
+
+model LoreEntry {
+  id             String   @id @default(cuid())
+  worldId        String
+  name           String
+  loreType       String   @default("general") // magic-system | pantheon | deity | language | prophecy | myth | cosmology | general
+  publicContent  String?
+  privateContent String?
+  imageUrls      String   @default("[]")
+  tags           String   @default("[]")
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  world World @relation(fields: [worldId], references: [id], onDelete: Cascade)
+
+  @@index([worldId])
+}
+
+// ─── Creature ─────────────────────────────────────────────────────────────────
+
+model Creature {
+  id              String   @id @default(cuid())
+  worldId         String
+  name            String
+  creatureType    String   @default("beast") // beast | undead | fey | construct | aberration | humanoid | dragon | elemental | fiend | celestial
+  publicContent   String?  // lore, description
+  privateContent  String?  // DM encounter notes
+  imageUrls       String   @default("[]")
+  tags            String   @default("[]")
+  // D&D 5e Stat Block (all optional)
+  size            String?  // tiny | small | medium | large | huge | gargantuan
+  alignment       String?
+  challengeRating String?  // CR 1/4, CR 5, etc.
+  statBlock       String?  // JSON: full 5e stat block
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  world World @relation(fields: [worldId], references: [id], onDelete: Cascade)
+
+  @@index([worldId])
+}
+
+// ─── Item ─────────────────────────────────────────────────────────────────────
+
+model Item {
+  id                 String   @id @default(cuid())
+  worldId            String
+  name               String
+  itemType           String   @default("weapon") // weapon | armor | artifact | wondrous | consumable | tool | treasure | cursed
+  rarity             String   @default("common") // common | uncommon | rare | very-rare | legendary | artifact
+  publicContent      String?  // public description
+  privateContent     String?  // true powers, curses, DM notes
+  imageUrls          String   @default("[]")
+  tags               String   @default("[]")
+  requiresAttunement Boolean  @default(false)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  world World @relation(fields: [worldId], references: [id], onDelete: Cascade)
+
+  @@index([worldId])
+}
+
+// ─── Quest ────────────────────────────────────────────────────────────────────
+
+model Quest {
+  id             String   @id @default(cuid())
+  worldId        String
+  name           String
+  questType      String   @default("main") // main | side | faction | personal | background
+  status         String   @default("active") // active | completed | failed | hidden | upcoming
+  publicContent  String?  // quest info players know
+  privateContent String?  // what players DON'T know yet, DM notes
+  imageUrls      String   @default("[]")
+  tags           String   @default("[]")
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  world World @relation(fields: [worldId], references: [id], onDelete: Cascade)
+
+  @@index([worldId])
+}
+
+// ─── Game Session ────────────────────────────────────────────────────────────
+
+model GameSession {
+  id             String    @id @default(cuid())
+  worldId        String
+  name           String
+  sessionNumber  Int?
+  sessionDate    DateTime?
+  publicContent  String?   // recap visible to players
+  privateContent String?   // DM prep notes, what players don't know
+  imageUrls      String    @default("[]")
+  tags           String    @default("[]")
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  world World @relation(fields: [worldId], references: [id], onDelete: Cascade)
+
+  @@index([worldId])
+}
+
+// ─── Entity Link (Bi-directional linking system) ──────────────────────────────
+// When A → B is created, B → A is auto-created server-side.
+
+model EntityLink {
+  id        String   @id @default(cuid())
+  worldId   String
+  fromType  String   // 'location' | 'character' | 'faction' | 'history-event' | 'lore' | 'creature' | 'item' | 'quest' | 'session'
+  fromId    String
+  toType    String
+  toId      String
+  label     String?  // optional relationship label: "rules", "lives in", "created by"
+  createdAt DateTime @default(now())
+
+  world World @relation(fields: [worldId], references: [id], onDelete: Cascade)
+
+  @@unique([fromType, fromId, toType, toId])
+  @@index([worldId])
+  @@index([fromType, fromId])
+  @@index([toType, toId])
+}
+
+// ─── Inbox Item (Quick-capture ideas) ─────────────────────────────────────────
+// Raw ideas / notes captured quickly, converted to entities later.
+
+model InboxItem {
+  id          String   @id @default(cuid())
+  worldId     String
+  content     String
+  processed   Boolean  @default(false)
+  linkedType  String?  // entity type it was converted to
+  linkedId    String?  // entity ID it was converted to
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  world World @relation(fields: [worldId], references: [id], onDelete: Cascade)
+
+  @@index([worldId])
+}
